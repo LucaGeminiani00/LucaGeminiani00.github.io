@@ -329,10 +329,10 @@
     const LS = narrow ? 0.12 : 0.07;    // RBF lengthscale, x in [0, 1]
     const NOISE = 1e-3;     // observation noise variance
     const N_SAMPLES = 3;
-    const STEPS = narrow ? 3 : 9;       // BO iterations per episode
+    const STEPS = narrow ? 3 : 6;       // BO iterations per episode
     const N_INIT = narrow ? 2 : 3;      // random points at the start of an episode
-    const MAX_OBS = narrow ? 8 : 30;    // start over once this many points are on screen
-    const AFTER_CLICK = narrow ? 2 : 5; // BO steps guaranteed after a click
+    const MAX_OBS = narrow ? 8 : 20;    // start over once this many points are on screen
+    const AFTER_CLICK = narrow ? 2 : 4; // BO steps guaranteed after a click
     const STEP_MS = narrow ? 1100 : 1700;
     const REVEAL_MS = narrow ? 2200 : 3200;  // how long the true f(x) is shown
     const CLICK_PAUSE_MS = narrow ? 1300 : 2000;
