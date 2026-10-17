@@ -329,11 +329,15 @@
     const LS = narrow ? 0.12 : 0.07;    // RBF lengthscale, x in [0, 1]
     const NOISE = 1e-3;     // observation noise variance
     const N_SAMPLES = 3;
-    const STEPS = narrow ? 5 : 9;       // BO iterations per episode
+    const STEPS = narrow ? 3 : 9;       // BO iterations per episode
     const N_INIT = narrow ? 2 : 3;      // random points at the start of an episode
-    const MAX_OBS = narrow ? 12 : 30;   // start over once this many points are on screen
-    const AFTER_CLICK = narrow ? 3 : 5; // BO steps guaranteed after a click
-    const STEP_MS = 1700;
+    const MAX_OBS = narrow ? 8 : 30;    // start over once this many points are on screen
+    const AFTER_CLICK = narrow ? 2 : 5; // BO steps guaranteed after a click
+    const STEP_MS = narrow ? 1100 : 1700;
+    const REVEAL_MS = narrow ? 2200 : 3200;  // how long the true f(x) is shown
+    const CLICK_PAUSE_MS = narrow ? 1300 : 2000;
+    // automatic points stay inside the visible part of the band (edges fade out)
+    const X_MIN = 0.1, X_MAX = 0.9;
     const Y_RANGE = 2.6;
     const grid = Array.from({ length: N }, (_, i) => i / (N - 1));
     const kern = (a, b) => Math.exp(-0.5 * ((a - b) / LS) ** 2);
@@ -439,7 +443,7 @@
       Y = [];
       steps = 0;
       target = posterior(X, Y);
-      for (let i = 0; i < nInit; i++) observe(0.06 + 0.88 * (i + Math.random()) / nInit);
+      for (let i = 0; i < nInit; i++) observe(X_MIN + (X_MAX - X_MIN) * (i + Math.random()) / nInit);
       disp = copyState(target);
       ripples = [];
     }
@@ -461,6 +465,7 @@
       const yBest = Y.length ? Math.max(...Y) : 0;
       let best = -1, bv = -Infinity;
       for (let i = 0; i < N; i++) {
+        if (grid[i] < X_MIN || grid[i] > X_MAX) continue;
         if (X.some((x) => Math.abs(x - grid[i]) < MIN_GAP)) continue;
         const d = s.mu[i] - yBest - XI, sd = s.sd[i];
         const v = sd > 1e-9 ? d * normCdf(d / sd) + sd * normPdf(d / sd) : Math.max(d, 0);
@@ -503,7 +508,7 @@
           phase = 'reveal';
           phaseAt = clock;
         }
-      } else if (phase === 'reveal' && clock - phaseAt > 3200) {
+      } else if (phase === 'reveal' && clock - phaseAt > REVEAL_MS) {
         phase = 'fade';
         phaseAt = clock;
       } else if (phase === 'fade') {
@@ -709,7 +714,7 @@
       observe(x);
       if (!canHover) mouseX = x;  // touch: show μ, σ where you tapped
       steps = Math.min(steps, STEPS - AFTER_CLICK);  // BO keeps going for a while after a click
-      nextStep = clock + 2000;
+      nextStep = clock + CLICK_PAUSE_MS;
       requestDraw();
     });
     if (canHover) {
