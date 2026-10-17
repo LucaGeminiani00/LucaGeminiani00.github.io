@@ -316,7 +316,7 @@
 
   /* ---------------- hero: Gaussian process band ----------------
      A GP posterior (mean, ±1σ/±2σ bands, a few posterior samples) runs
-     Bayesian optimisation (Thompson sampling) on a hidden function drawn from the
+     Bayesian optimisation (Expected Improvement) on a hidden function drawn from the
      prior. Clicking queries f(x) there; hovering shows the predictive
      distribution at that x with its μ and σ. */
 
@@ -438,16 +438,26 @@
       ripples = [];
     }
 
-    // Thompson sampling: argmax of a fresh posterior draw, skipping x values
-    // that already have an observation (so the loop never stalls on one spot)
+    // Expected Improvement over the best observation so far, maximised on the
+    // grid. x values that already have an observation are skipped, so the
+    // loop never stalls on one spot.
     const MIN_GAP = 0.03;
-    function thompsonQuery(s) {
-      const e = Float64Array.from(grid, randn);
+    const XI = 0.01;  // small exploration margin
+    const normPdf = (u) => Math.exp(-0.5 * u * u) / Math.sqrt(2 * Math.PI);
+    function normCdf(u) {
+      // Abramowitz–Stegun 7.1.26 approximation of erf
+      const t = 1 / (1 + 0.3275911 * Math.abs(u) / Math.SQRT2);
+      const erf = 1 - t * (0.254829592 + t * (-0.284496736 + t * (1.421413741
+        + t * (-1.453152027 + t * 1.061405429)))) * Math.exp(-u * u / 2);
+      return 0.5 * (1 + (u >= 0 ? erf : -erf));
+    }
+    function eiQuery(s) {
+      const yBest = Y.length ? Math.max(...Y) : 0;
       let best = -1, bv = -Infinity;
       for (let i = 0; i < N; i++) {
         if (X.some((x) => Math.abs(x - grid[i]) < MIN_GAP)) continue;
-        let v = s.mu[i];
-        for (let k = 0; k <= i; k++) v += s.L[i * N + k] * e[k];
+        const d = s.mu[i] - yBest - XI, sd = s.sd[i];
+        const v = sd > 1e-9 ? d * normCdf(d / sd) + sd * normPdf(d / sd) : Math.max(d, 0);
         if (v > bv) { bv = v; best = i; }
       }
       return best < 0 ? null : grid[best];
@@ -478,7 +488,7 @@
       ripples = ripples.filter((p) => clock - p.t0 < 900);
 
       if (phase === 'run' && clock >= nextStep) {
-        const xq = steps < STEPS ? thompsonQuery(target) : null;
+        const xq = steps < STEPS ? eiQuery(target) : null;
         if (xq !== null) {
           observe(xq);
           steps++;
