@@ -134,8 +134,9 @@ h1, h2, h3, h4 { font-family: var(--font-head); line-height: 1.15; }
 html[data-theme="dark"] .theme-toggle .fa-moon { display: none; }
 html[data-theme="light"] .theme-toggle .fa-sun { display: none; }
 
+/* phones: just the logo and icons */
 @media (max-width: 640px) {
-  .nav-links a:not(.nav-life) { display: none; }
+  .nav-links { display: none; }
   .nav-inner { gap: 1rem; }
 }
 @media (max-width: 430px) {
@@ -174,6 +175,11 @@ html[data-theme="light"] .theme-toggle .fa-sun { display: none; }
   mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
 }
 html:not(.js) .gp-canvas { display: none; }
+
+/* phones: shorter band so the plot isn't stretched tall relative to its width */
+@media (max-width: 700px) {
+  .gp-canvas { height: calc(clamp(170px, 24vh, 230px) + 2 * var(--gp-pad)); }
+}
 
 .hero-name {
   font-size: clamp(2.6rem, 8vw, 4.6rem);
