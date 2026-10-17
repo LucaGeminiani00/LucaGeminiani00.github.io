@@ -150,13 +150,30 @@ html[data-theme="light"] .theme-toggle .fa-sun { display: none; }
   flex-direction: column;
   justify-content: center;
   align-items: center;
-  padding: 6rem 1.4rem 3rem;
+  padding: 6rem 1.4rem 0;
 }
 
 .hero-content {
+  position: relative;
+  z-index: 1;
   text-align: center;
   max-width: 760px;
 }
+
+/* GP band under the hero text: full-bleed, fading out at the edges.
+   --gp-pad is transparent headroom above and below the plot that overlaps
+   the neighbouring whitespace, so curves swinging wide are never cut off. */
+.gp-canvas {
+  --gp-pad: 44px;
+  display: block;
+  width: calc(100% + 2.8rem);
+  height: calc(clamp(240px, 38vh, 400px) + 2 * var(--gp-pad));
+  margin: calc(2.2rem - var(--gp-pad)) -1.4rem calc(-1 * var(--gp-pad));
+  cursor: crosshair;
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+}
+html:not(.js) .gp-canvas { display: none; }
 
 .hero-name {
   font-size: clamp(2.6rem, 8vw, 4.6rem);
@@ -212,6 +229,9 @@ html[data-theme="dark"] .btn-primary { color: #0b0e1a; }
   margin: 0 auto;
   padding: 4rem 1.4rem 1rem;
 }
+
+/* the GP band's headroom already adds space above the first section */
+#about { padding-top: 2.75rem; }
 
 .section-head {
   display: flex;

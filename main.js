@@ -314,6 +314,398 @@
     })(t0);
   }
 
+  /* ---------------- hero: Gaussian process band ----------------
+     A GP posterior (mean, ±1σ/±2σ bands, a few posterior samples) runs
+     Bayesian optimisation (Thompson sampling) on a hidden function drawn from the
+     prior. Clicking queries f(x) there; hovering shows the predictive
+     distribution at that x with its μ and σ. */
+
+  const gpCanvas = document.getElementById('gp-canvas');
+  if (gpCanvas && gpCanvas.getContext) {
+    const ctx = gpCanvas.getContext('2d');
+    const N = 100;          // grid points
+    const LS = 0.07;        // RBF lengthscale, x in [0, 1]
+    const NOISE = 1e-3;     // observation noise variance
+    const N_SAMPLES = 3;
+    const STEPS = 9;        // BO iterations per episode
+    const STEP_MS = 1700;
+    const Y_RANGE = 2.6;
+    const grid = Array.from({ length: N }, (_, i) => i / (N - 1));
+    const kern = (a, b) => Math.exp(-0.5 * ((a - b) / LS) ** 2);
+    const randn = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+    const animate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const canHover = window.matchMedia('(hover: hover)').matches;
+
+    // Cholesky; pivots that vanish are zeroed (low rank) instead of blowing up
+    function chol(A, n) {
+      const L = new Float64Array(n * n);
+      for (let i = 0; i < n; i++) {
+        for (let j = 0; j <= i; j++) {
+          let s = A[i * n + j];
+          for (let k = 0; k < j; k++) s -= L[i * n + k] * L[j * n + k];
+          if (i === j) L[i * n + i] = s > 1e-10 ? Math.sqrt(s) : 0;
+          else L[i * n + j] = L[j * n + j] > 0 ? s / L[j * n + j] : 0;
+        }
+      }
+      return L;
+    }
+
+    function posterior(X, Y) {
+      const n = X.length;
+      const mu = new Float64Array(N);
+      const cov = new Float64Array(N * N);
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) cov[i * N + j] = kern(grid[i], grid[j]) + (i === j ? 1e-6 : 0);
+      }
+      if (n) {
+        const K = new Float64Array(n * n);
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) K[i * n + j] = kern(X[i], X[j]) + (i === j ? NOISE : 0);
+        }
+        const Lk = chol(K, n);
+        // V = Lk⁻¹ K(X, grid), w = Lk⁻¹ y  →  μ = Vᵀw,  Σ = K** − VᵀV
+        const V = new Float64Array(n * N);
+        for (let c = 0; c < N; c++) {
+          for (let i = 0; i < n; i++) {
+            let s = kern(X[i], grid[c]);
+            for (let k = 0; k < i; k++) s -= Lk[i * n + k] * V[k * N + c];
+            V[i * N + c] = s / Lk[i * n + i];
+          }
+        }
+        const w = new Float64Array(n);
+        for (let i = 0; i < n; i++) {
+          let s = Y[i];
+          for (let k = 0; k < i; k++) s -= Lk[i * n + k] * w[k];
+          w[i] = s / Lk[i * n + i];
+        }
+        for (let a = 0; a < N; a++) {
+          for (let i = 0; i < n; i++) mu[a] += V[i * N + a] * w[i];
+          for (let b = 0; b <= a; b++) {
+            let s = 0;
+            for (let i = 0; i < n; i++) s += V[i * N + a] * V[i * N + b];
+            cov[a * N + b] -= s;
+            if (b !== a) cov[b * N + a] -= s;
+          }
+        }
+      }
+      const sd = new Float64Array(N);
+      for (let i = 0; i < N; i++) sd[i] = Math.sqrt(Math.max(cov[i * N + i], 0));
+      return { mu, sd, L: chol(cov, N) };
+    }
+
+    // hidden objective: random Fourier features ≈ a draw from the same RBF prior
+    function drawObjective() {
+      const M = 60;
+      const om = [], ph = [], amp = [];
+      for (let m = 0; m < M; m++) {
+        om.push(randn() / LS);
+        ph.push(Math.random() * 2 * Math.PI);
+        amp.push(randn());
+      }
+      const c = Math.sqrt(2 / M);
+      return (x) => {
+        let s = 0;
+        for (let m = 0; m < M; m++) s += amp[m] * Math.cos(om[m] * x + ph[m]);
+        return Math.max(-Y_RANGE + 0.3, Math.min(Y_RANGE - 0.3, c * s));
+      };
+    }
+
+    const copyState = (t) => ({ mu: t.mu.slice(), sd: t.sd.slice(), L: t.L.slice() });
+    const z = Array.from({ length: N_SAMPLES }, () => Float64Array.from(grid, randn));
+
+    let f, X, Y, target, disp, steps;
+    let phase = 'run', phaseAt = 0, clock = 0, nextStep = 0, alpha = 1;
+    let ripples = [];
+    let mouseX = null;
+
+    function observe(x) {
+      const y = f(x) + 0.02 * randn();
+      X.push(x);
+      Y.push(y);
+      target = posterior(X, Y);
+      if (animate) ripples.push({ x, y, t0: clock });
+      else disp = copyState(target);
+    }
+
+    function newEpisode(nInit) {
+      f = drawObjective();
+      X = [];
+      Y = [];
+      steps = 0;
+      target = posterior(X, Y);
+      for (let i = 0; i < nInit; i++) observe(0.06 + 0.88 * (i + Math.random()) / nInit);
+      disp = copyState(target);
+      ripples = [];
+    }
+
+    // Thompson sampling: argmax of a fresh posterior draw, skipping x values
+    // that already have an observation (so the loop never stalls on one spot)
+    const MIN_GAP = 0.03;
+    function thompsonQuery(s) {
+      const e = Float64Array.from(grid, randn);
+      let best = -1, bv = -Infinity;
+      for (let i = 0; i < N; i++) {
+        if (X.some((x) => Math.abs(x - grid[i]) < MIN_GAP)) continue;
+        let v = s.mu[i];
+        for (let k = 0; k <= i; k++) v += s.L[i * N + k] * e[k];
+        if (v > bv) { bv = v; best = i; }
+      }
+      return best < 0 ? null : grid[best];
+    }
+
+    const interp = (arr, x) => {
+      const u = Math.max(0, Math.min(N - 1, x * (N - 1)));
+      const i = Math.min(N - 2, Math.floor(u));
+      return arr[i] + (arr[i + 1] - arr[i]) * (u - i);
+    };
+
+    function update(dt) {
+      clock += dt;
+
+      // ease the displayed posterior toward the current one
+      const r = 1 - Math.exp(-dt / 220);
+      for (let i = 0; i < N; i++) {
+        disp.mu[i] += (target.mu[i] - disp.mu[i]) * r;
+        disp.sd[i] += (target.sd[i] - disp.sd[i]) * r;
+      }
+      for (let i = 0; i < N * N; i++) disp.L[i] += (target.L[i] - disp.L[i]) * r;
+
+      // posterior samples wiggle: z follows an Ornstein–Uhlenbeck process
+      const rho = Math.exp(-dt / 2600);
+      const kick = Math.sqrt(1 - rho * rho);
+      z.forEach((zs) => { for (let i = 0; i < N; i++) zs[i] = rho * zs[i] + kick * randn(); });
+
+      ripples = ripples.filter((p) => clock - p.t0 < 900);
+
+      if (phase === 'run' && clock >= nextStep) {
+        const xq = steps < STEPS ? thompsonQuery(target) : null;
+        if (xq !== null) {
+          observe(xq);
+          steps++;
+          nextStep = clock + STEP_MS;
+        } else {
+          phase = 'reveal';
+          phaseAt = clock;
+        }
+      } else if (phase === 'reveal' && clock - phaseAt > 3200) {
+        phase = 'fade';
+        phaseAt = clock;
+      } else if (phase === 'fade') {
+        alpha = Math.max(0, 1 - (clock - phaseAt) / 700);
+        if (alpha === 0) {
+          newEpisode(3);
+          phase = 'in';
+          phaseAt = clock;
+        }
+      } else if (phase === 'in') {
+        alpha = Math.min(1, (clock - phaseAt) / 700);
+        if (alpha === 1) {
+          phase = 'run';
+          nextStep = clock + 900;
+        }
+      }
+    }
+
+    let col = {};
+    function readColors() {
+      const cs = getComputedStyle(document.documentElement);
+      const v = (name) => cs.getPropertyValue(name).trim();
+      col = { a: v('--accent'), b: v('--accent-2'), muted: v('--text-muted'), bg: v('--bg') };
+    }
+
+    let dpr = 1, pad = 0;
+    function resize() {
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      pad = parseFloat(getComputedStyle(gpCanvas).getPropertyValue('--gp-pad')) || 0;
+      gpCanvas.width = Math.round(gpCanvas.clientWidth * dpr);
+      gpCanvas.height = Math.round(gpCanvas.clientHeight * dpr);
+    }
+
+    function draw() {
+      const W = gpCanvas.width / dpr;
+      const H = gpCanvas.height / dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, W, H);
+      if (!W || !H) return;
+
+      // plot inside the padding; curves may swing out into it
+      const top = pad + (H - 2 * pad) * 0.06, bot = H - pad - (H - 2 * pad) * 0.06;
+      const mid = (top + bot) / 2, yScale = (bot - top) / (2 * Y_RANGE);
+      const px = (x) => x * W;
+      const py = (y) => mid - y * yScale;
+      const reveal = phase === 'reveal' ? Math.min(1, (clock - phaseAt) / 600) : (phase === 'fade' ? 1 : 0);
+      const { mu, sd, L } = disp;
+
+      const line = (yAt) => {
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) ctx[i ? 'lineTo' : 'moveTo'](px(grid[i]), py(yAt(i)));
+      };
+      const band = (k, a) => {
+        ctx.beginPath();
+        for (let i = 0; i < N; i++) ctx[i ? 'lineTo' : 'moveTo'](px(grid[i]), py(mu[i] + k * sd[i]));
+        for (let i = N - 1; i >= 0; i--) ctx.lineTo(px(grid[i]), py(mu[i] - k * sd[i]));
+        ctx.closePath();
+        ctx.globalAlpha = alpha * a;
+        ctx.fillStyle = col.a;
+        ctx.fill();
+      };
+
+      band(2, 0.12);
+      band(1, 0.16);
+
+      // posterior samples μ + L z
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = col.b;
+      ctx.globalAlpha = alpha * 0.6;
+      z.forEach((zs) => {
+        line((i) => {
+          let s = mu[i];
+          for (let k = 0; k <= i; k++) s += L[i * N + k] * zs[k];
+          return s;
+        });
+        ctx.stroke();
+      });
+
+      // posterior mean
+      ctx.lineWidth = 2.8;
+      ctx.strokeStyle = col.a;
+      ctx.globalAlpha = alpha;
+      line((i) => mu[i]);
+      ctx.stroke();
+
+      // true objective, revealed at the end of each episode
+      if (reveal > 0) {
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = col.muted;
+        ctx.globalAlpha = alpha * reveal * 0.8;
+        line((i) => f(grid[i]));
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // observations; the incumbent (best so far) gets a ring
+      let inc = 0;
+      Y.forEach((y, i) => { if (y > Y[inc]) inc = i; });
+      X.forEach((x, i) => {
+        const fresh = ripples.find((p) => p.x === x);
+        const grow = fresh ? Math.min(1, (clock - fresh.t0) / 250) : 1;
+        ctx.globalAlpha = alpha;
+        ctx.beginPath();
+        ctx.arc(px(x), py(Y[i]), 5.5 * grow, 0, 2 * Math.PI);
+        ctx.fillStyle = col.bg;
+        ctx.fill();
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = col.a;
+        ctx.stroke();
+        if (i === inc) {
+          ctx.beginPath();
+          ctx.arc(px(x), py(Y[i]), 9, 0, 2 * Math.PI);
+          ctx.lineWidth = 1.5;
+          ctx.strokeStyle = col.b;
+          ctx.globalAlpha = alpha * 0.8;
+          ctx.stroke();
+        }
+      });
+      ripples.forEach((p) => {
+        const t = (clock - p.t0) / 900;
+        ctx.beginPath();
+        ctx.arc(px(p.x), py(p.y), 5 + 26 * t, 0, 2 * Math.PI);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = col.a;
+        ctx.globalAlpha = alpha * (1 - t) * 0.6;
+        ctx.stroke();
+      });
+
+      // hover: predictive distribution p(f(x) | data) at the cursor
+      if (mouseX !== null) {
+        const m = interp(mu, mouseX), s = interp(sd, mouseX), x0 = px(mouseX);
+        ctx.globalAlpha = 0.25;
+        ctx.strokeStyle = col.muted;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x0, pad / 2);
+        ctx.lineTo(x0, H - pad / 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x0, py(m + 3 * s));
+        for (let k = 0; k <= 40; k++) {
+          const t = 3 - (6 * k) / 40;
+          ctx.lineTo(x0 + 56 * Math.exp(-0.5 * t * t), py(m + t * s));
+        }
+        ctx.lineTo(x0, py(m - 3 * s));
+        ctx.fillStyle = col.b;
+        ctx.globalAlpha = 0.14;
+        ctx.fill();
+        ctx.strokeStyle = col.b;
+        ctx.globalAlpha = 0.6;
+        ctx.stroke();
+        const label = `μ ${m.toFixed(2)}  σ ${s.toFixed(2)}`;
+        const flip = x0 > W - 150;
+        ctx.font = '12px "JetBrains Mono", ui-monospace, monospace';
+        ctx.textAlign = flip ? 'right' : 'left';
+        ctx.fillStyle = col.muted;
+        ctx.globalAlpha = 0.9;
+        ctx.fillText(label, x0 + (flip ? -10 : 10), Math.max(16, py(m + 3 * s) - 8));
+        ctx.textAlign = 'left';
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // loop: runs only while the band is on screen; static under reduced motion
+    let visible = true, raf = 0, last = 0;
+    function frame(t) {
+      raf = 0;
+      if (animate) {
+        update(last ? Math.min(t - last, 50) : 16);
+        last = t;
+      }
+      draw();
+      if (animate && visible) raf = requestAnimationFrame(frame);
+      else last = 0;
+    }
+    const requestDraw = () => { if (!raf) raf = requestAnimationFrame(frame); };
+
+    readColors();
+    resize();
+    newEpisode(animate ? 3 : 6);
+    nextStep = 900;
+    requestDraw();
+
+    new MutationObserver(() => { readColors(); requestDraw(); })
+      .observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+    if ('ResizeObserver' in window) new ResizeObserver(() => { resize(); requestDraw(); }).observe(gpCanvas);
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(([en]) => {
+        visible = en.isIntersecting;
+        if (visible) requestDraw();
+      }).observe(gpCanvas);
+    }
+
+    gpCanvas.addEventListener('click', (e) => {
+      const r = gpCanvas.getBoundingClientRect();
+      const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      if (phase !== 'run' || X.length >= 30) {
+        newEpisode(0);
+        phase = 'run';
+        alpha = 1;
+      }
+      observe(x);
+      if (!canHover) mouseX = x;  // touch: show μ, σ where you tapped
+      steps = Math.min(steps, STEPS - 5);  // BO keeps going for a while after a click
+      nextStep = clock + 2000;
+      requestDraw();
+    });
+    if (canHover) {
+      gpCanvas.addEventListener('mousemove', (e) => {
+        const r = gpCanvas.getBoundingClientRect();
+        mouseX = (e.clientX - r.left) / r.width;
+        requestDraw();
+      });
+      gpCanvas.addEventListener('mouseleave', () => { mouseX = null; requestDraw(); });
+    }
+  }
+
   /* ---------------- footer ---------------- */
 
   document.getElementById('year').textContent = new Date().getFullYear();
