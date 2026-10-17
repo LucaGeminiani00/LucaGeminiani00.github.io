@@ -324,17 +324,23 @@
   if (gpCanvas && gpCanvas.getContext) {
     const ctx = gpCanvas.getContext('2d');
     const N = 100;          // grid points
-    const LS = 0.07;        // RBF lengthscale, x in [0, 1]
+    // narrow screens (phones) get fewer, more spread-out points and smoother curves
+    const narrow = gpCanvas.clientWidth < 700;
+    const LS = narrow ? 0.12 : 0.07;    // RBF lengthscale, x in [0, 1]
     const NOISE = 1e-3;     // observation noise variance
     const N_SAMPLES = 3;
-    const STEPS = 9;        // BO iterations per episode
+    const STEPS = narrow ? 5 : 9;       // BO iterations per episode
+    const N_INIT = narrow ? 2 : 3;      // random points at the start of an episode
+    const MAX_OBS = narrow ? 12 : 30;   // start over once this many points are on screen
+    const AFTER_CLICK = narrow ? 3 : 5; // BO steps guaranteed after a click
     const STEP_MS = 1700;
     const Y_RANGE = 2.6;
     const grid = Array.from({ length: N }, (_, i) => i / (N - 1));
     const kern = (a, b) => Math.exp(-0.5 * ((a - b) / LS) ** 2);
     const randn = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
-    const animate = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const canHover = window.matchMedia('(hover: hover)').matches;
+    // touch devices always animate; elsewhere reduced motion gets a still plot
+    const animate = !canHover || !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     // Cholesky; pivots that vanish are zeroed (low rank) instead of blowing up
     function chol(A, n) {
@@ -441,7 +447,7 @@
     // Expected Improvement over the best observation so far, maximised on the
     // grid. x values that already have an observation are skipped, so the
     // loop never stalls on one spot.
-    const MIN_GAP = 0.03;
+    const MIN_GAP = narrow ? 0.06 : 0.03;
     const XI = 0.01;  // small exploration margin
     const normPdf = (u) => Math.exp(-0.5 * u * u) / Math.sqrt(2 * Math.PI);
     function normCdf(u) {
@@ -503,7 +509,7 @@
       } else if (phase === 'fade') {
         alpha = Math.max(0, 1 - (clock - phaseAt) / 700);
         if (alpha === 0) {
-          newEpisode(3);
+          newEpisode(N_INIT);
           phase = 'in';
           phaseAt = clock;
         }
@@ -678,7 +684,7 @@
 
     readColors();
     resize();
-    newEpisode(animate ? 3 : 6);
+    newEpisode(animate ? N_INIT : 6);
     nextStep = 900;
     requestDraw();
 
@@ -695,14 +701,14 @@
     gpCanvas.addEventListener('click', (e) => {
       const r = gpCanvas.getBoundingClientRect();
       const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
-      if (phase !== 'run' || X.length >= 30) {
+      if (phase !== 'run' || X.length >= MAX_OBS) {
         newEpisode(0);
         phase = 'run';
         alpha = 1;
       }
       observe(x);
       if (!canHover) mouseX = x;  // touch: show μ, σ where you tapped
-      steps = Math.min(steps, STEPS - 5);  // BO keeps going for a while after a click
+      steps = Math.min(steps, STEPS - AFTER_CLICK);  // BO keeps going for a while after a click
       nextStep = clock + 2000;
       requestDraw();
     });
