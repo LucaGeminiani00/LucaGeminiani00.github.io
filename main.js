@@ -537,7 +537,9 @@
     let dpr = 1, pad = 0;
     function resize() {
       dpr = Math.min(window.devicePixelRatio || 1, 2);
-      pad = parseFloat(getComputedStyle(gpCanvas).getPropertyValue('--gp-pad')) || 0;
+      // --gp-pad is in rem, and getPropertyValue returns it unresolved
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+      pad = (parseFloat(getComputedStyle(gpCanvas).getPropertyValue('--gp-pad')) || 0) * rem;
       gpCanvas.width = Math.round(gpCanvas.clientWidth * dpr);
       gpCanvas.height = Math.round(gpCanvas.clientHeight * dpr);
     }

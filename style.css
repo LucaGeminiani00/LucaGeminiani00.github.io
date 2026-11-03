@@ -6,7 +6,12 @@
   --font-body: 'Inter', system-ui, -apple-system, sans-serif;
   --font-head: 'Space Grotesk', var(--font-body);
   --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', monospace;
-  --max-w: 1060px;
+  /* Up to 1600px wide these resolve to their fixed minimums. Beyond that the
+     column and portrait grow with the screen, so big monitors don't end up
+     with empty margins; text grows too (see html below), which keeps line
+     lengths about the same. */
+  --max-w: clamp(1060px, calc(1060px + (100vw - 1600px) * 0.55), 1600px);
+  --photo-w: clamp(240px, calc(240px + (100vw - 1600px) * 0.2), 440px);
   --radius: 14px;
 }
 
@@ -38,14 +43,20 @@ html[data-theme="dark"] {
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; scroll-padding-top: 4rem; }
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 4rem;
+  /* 1rem = 16px up to 1600px wide, easing up to 20.8px at 2560px and beyond.
+     Sizes below are in rem so they all scale together. */
+  font-size: clamp(100%, calc(100% + (100vw - 1600px) * 0.005), 130%);
+}
 
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
-  font-size: 16.5px;
+  font-size: 1.03125rem;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
   transition: background-color 0.3s ease, color 0.3s ease;
@@ -112,8 +123,8 @@ h1, h2, h3, h4 { font-family: var(--font-head); line-height: 1.15; }
 .nav-icons a, .theme-toggle {
   display: grid;
   place-items: center;
-  width: 34px;
-  height: 34px;
+  width: 2.125rem;
+  height: 2.125rem;
   border-radius: 9px;
   color: var(--text-muted);
   font-size: 0.95rem;
@@ -147,7 +158,7 @@ html[data-theme="light"] .theme-toggle .fa-sun { display: none; }
 
 .hero {
   /* capped so zooming out doesn't add ever more white space below the plot */
-  min-height: min(78svh, 780px);
+  min-height: min(78svh, 48.75rem);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -159,19 +170,20 @@ html[data-theme="light"] .theme-toggle .fa-sun { display: none; }
   position: relative;
   z-index: 1;
   text-align: center;
-  max-width: 760px;
+  max-width: 47.5rem;
 }
 
 /* GP band under the hero text: full-bleed, fading out at the edges.
    --gp-pad is transparent headroom above and below the plot that overlaps
-   the neighbouring whitespace, so curves swinging wide are never cut off. */
+   the neighbouring whitespace, so curves swinging wide are never cut off.
+   main.js reads --gp-pad and expects it in rem. */
 .gp-canvas {
-  --gp-pad: 44px;
+  --gp-pad: 2.75rem;
   display: block;
   /* full-bleed on normal screens, but capped so zooming out on a wide screen
      doesn't stretch the plot into a long flat line */
-  width: min(calc(100% + 2.8rem), 1600px);
-  height: calc(clamp(240px, 38vh, 400px) + 2 * var(--gp-pad));
+  width: min(calc(100% + 2.8rem), 100rem);
+  height: calc(clamp(240px, 38vh, 25rem) + 2 * var(--gp-pad));
   margin: calc(2.2rem - var(--gp-pad)) 0 calc(-1 * var(--gp-pad));
   cursor: crosshair;
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
@@ -199,7 +211,7 @@ html:not(.js) .gp-canvas { display: none; }
   font-size: clamp(1.02rem, 2.4vw, 1.22rem);
   color: var(--text-muted);
   margin: 0 auto 1.6rem;
-  max-width: 620px;
+  max-width: 38.75rem;
 }
 .hero-tagline .accent { color: var(--text); font-weight: 600; }
 
@@ -277,7 +289,7 @@ html[data-theme="dark"] .btn-primary { color: #0b0e1a; }
 
 .about-grid {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: var(--photo-w) 1fr;
   gap: 2.6rem;
   align-items: start;
 }
@@ -371,7 +383,7 @@ html[data-theme="dark"] .filter-chip.active { color: #0b0e1a; }
   padding: 1.1rem 1.3rem;
   margin-bottom: 0.8rem;
   display: grid;
-  grid-template-columns: 92px 1fr;
+  grid-template-columns: 5.75rem 1fr;
   gap: 1.1rem;
   transition: border-color 0.2s ease, transform 0.2s ease;
 }
@@ -487,7 +499,7 @@ html[data-theme="dark"] .venue-preprint { color: #94a3b8; }
   transition: grid-template-rows 0.45s ease, visibility 0s;
 }
 
-.life-text { max-width: 760px; margin-bottom: 1.8rem; }
+.life-text { max-width: 47.5rem; margin-bottom: 1.8rem; }
 .life-text p { margin: 0 0 1rem; }
 
 .gallery-title {
